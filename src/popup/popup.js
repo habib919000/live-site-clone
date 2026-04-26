@@ -1,0 +1,141 @@
+document.addEventListener('DOMContentLoaded', async () => {
+  const startBtn = document.getElementById('start-btn');
+  const resetBtn = document.getElementById('reset-btn');
+  const initialState = document.getElementById('initial-state');
+  const resultContainer = document.getElementById('result-container');
+  const tagNameSpan = document.getElementById('tag-name');
+  const copyHtmlBtn = document.getElementById('copy-html');
+  const copyCssBtn = document.getElementById('copy-css');
+  const downloadBtn = document.getElementById('download-btn');
+
+  let lastResult = null;
+
+  // Load last result from storage
+  async function loadResult() {
+    const storage = await chrome.storage.local.get('lastClone');
+    if (storage.lastClone) {
+      lastResult = storage.lastClone;
+      tagNameSpan.textContent = `<${lastResult.tagName.toLowerCase()}>`;
+      initialState.classList.add('hidden');
+      resultContainer.classList.remove('hidden');
+    } else {
+      initialState.classList.remove('hidden');
+      resultContainer.classList.add('hidden');
+    }
+  }
+
+  await loadResult();
+
+  // Listen for storage changes to update UI in real-time if popup is open
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.lastClone) {
+      loadResult();
+    }
+  });
+
+  async function startPicker() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['src/content/index.js']
+      });
+    } catch (e) {
+      // Script might already be there
+    }
+
+    chrome.tabs.sendMessage(tab.id, { action: 'START_PICKER' });
+    // No longer closing the window, as this is now a side panel
+  }
+
+  startBtn.addEventListener('click', startPicker);
+  resetBtn.addEventListener('click', async () => {
+    await chrome.storage.local.remove('lastClone');
+    startPicker();
+  });
+
+  copyHtmlBtn.addEventListener('click', () => {
+    if (lastResult) {
+      copyToClipboard(lastResult.html);
+      showFeedback(copyHtmlBtn, 'HTML');
+    }
+  });
+
+  copyCssBtn.addEventListener('click', () => {
+    if (lastResult) {
+      copyToClipboard(lastResult.css);
+      showFeedback(copyCssBtn, 'CSS');
+    }
+  });
+
+  downloadBtn.addEventListener('click', async () => {
+    if (lastResult) {
+      let iconBase64 = '';
+      try {
+        const response = await fetch(chrome.runtime.getURL('assets/icons/icon128.png'));
+        const blob = await response.blob();
+        iconBase64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.error('Failed to load icon for download:', e);
+      }
+
+      const fullHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloned ${lastResult.tagName}</title>
+  ${iconBase64 ? `<link rel="icon" type="image/png" href="${iconBase64}">` : ''}
+  <style>
+    body { margin: 0; padding: 20px; background: #f5f5f5; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; font-family: sans-serif; }
+    .cloned-container { background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+    ${lastResult.css}
+  </style>
+</head>
+<body>
+  <div class="cloned-container">
+    ${lastResult.html}
+  </div>
+</body>
+</html>`;
+      const blob = new Blob([fullHtml], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cloned-${lastResult.tagName.toLowerCase()}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  });
+
+  function copyToClipboard(text) {
+    const el = document.createElement('textarea');
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  }
+
+  function showFeedback(btn, label) {
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!`;
+    const originalBg = btn.style.background;
+    const originalColor = btn.style.color;
+    
+    btn.style.background = '#dcfce7';
+    btn.style.color = '#166534';
+    
+    setTimeout(() => {
+      btn.innerHTML = originalContent;
+      btn.style.background = originalBg;
+      btn.style.color = originalColor;
+    }, 2000);
+  }
+});

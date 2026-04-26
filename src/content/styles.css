@@ -1,0 +1,31 @@
+.design-clone-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2147483647;
+  background-color: rgba(1, 43, 17, 0.15);
+  border: 2px solid #012B11;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.design-clone-label {
+  position: absolute;
+  background: #012B11;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  top: -28px;
+  left: 0;
+  white-space: nowrap;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  z-index: 2147483647;
+}
+
+.design-clone-hidden-instant {
+  display: none !important;
+}

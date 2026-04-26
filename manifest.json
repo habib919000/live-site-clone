@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Live Site Clone",
+  "version": "1.0.0",
+  "description": "Clone any section from a website into clean HTML/CSS.",
+  "icons": {
+    "16": "assets/icons/icon24.png",
+    "32": "assets/icons/icon48.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "sidePanel"
+  ],
+  "side_panel": {
+    "default_path": "src/popup/popup.html"
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/icons/icon24.png",
+      "24": "assets/icons/icon24.png",
+      "32": "assets/icons/icon48.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/index.js"
+      ],
+      "css": [
+        "src/content/styles.css"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/content/styles.css",
+        "src/content/picker.js",
+        "src/content/extractor.js",
+        "assets/icons/icon24.png",
+        "assets/icons/icon48.png",
+        "assets/icons/icon128.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
