@@ -20,31 +20,36 @@
     if (!picker && ElementPicker) {
       picker = new ElementPicker(async (element) => {
         const extractor = new Extractor();
-        const settings = await chrome.storage.local.get('inlineAssets');
+        const settings = await chrome.storage.local.get(['inlineAssets', 'exportMode', 'multiSelect']);
         const result = await extractor.extract(element, {
-          inlineAssets: !!settings.inlineAssets
+          inlineAssets: !!settings.inlineAssets,
+          mode: settings.exportMode === 'tailwind' ? 'tailwind' : 'default'
         });
-        
-        // Save to storage so popup can read it
-        await chrome.storage.local.set({ lastClone: result });
-        
-        // Notify background as well
-        chrome.runtime.sendMessage({
-          action: 'CLONE_RESULT',
-          data: result
-        });
-        
-        // Removed the alert to provide a smoother UX
+
+        // Latest clone drives the single-clone UI.
+        const store = { lastClone: result };
+        // In multi mode also append to the collected list.
+        if (settings.multiSelect) {
+          const prev = (await chrome.storage.local.get('lastClones')).lastClones || [];
+          prev.push(result);
+          store.lastClones = prev;
+        }
+        await chrome.storage.local.set(store);
+
+        chrome.runtime.sendMessage({ action: 'CLONE_RESULT', data: result });
       });
     }
-    if (picker) picker.start();
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Live Site Clone: Message received', message);
-    
+
     if (message.action === 'START_PICKER') {
-      initPicker();
+      // Multi flag arrives with the start message.
+      chrome.storage.local.get('multiSelect').then(({ multiSelect }) => {
+        if (!picker && ElementPicker) initPicker();
+        if (picker) picker.start(!!multiSelect);
+      });
       sendResponse({ status: 'picker_started' });
     }
     return true;

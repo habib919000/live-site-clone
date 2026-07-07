@@ -153,6 +153,17 @@ p {
   margin-bottom: 12px;
 }
 
+.collected {
+  background: #e0f2fe;
+  border: 1px solid #7dd3fc;
+  color: #075985;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
 .options {
   display: flex;
   flex-wrap: wrap;

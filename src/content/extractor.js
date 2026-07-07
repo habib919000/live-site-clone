@@ -15,6 +15,11 @@ export class Extractor {
   ]);
 
   async extract(element, options = {}) {
+    // Tailwind mode: emit utility classes from computed styles, no <style> block.
+    if (options && options.mode === 'tailwind') {
+      return this.extractTailwind(element);
+    }
+
     // Deep clone the element (preserves original tags, classes, inline styles)
     const clonedElement = element.cloneNode(true);
 
@@ -51,6 +56,111 @@ export class Extractor {
       tagName: element.tagName.toLowerCase(),
       skippedSheets: source.skippedSheets
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tailwind export — computed styles mapped to utility classes
+  // ---------------------------------------------------------------------------
+
+  async extractTailwind(element) {
+    const clone = element.cloneNode(true);
+    const originals = this.getAllElements(element);
+    const clones = this.getAllElements(clone);
+
+    for (let i = 0; i < originals.length; i++) {
+      if (!clones[i]) continue;
+      const classes = this.mapComputedToTailwind(window.getComputedStyle(originals[i]));
+      if (classes.length) clones[i].setAttribute('class', classes.join(' '));
+      else clones[i].removeAttribute('class');
+      if ((originals[i].tagName === 'IMG' || originals[i].tagName === 'SOURCE') && originals[i].getAttribute('src')) {
+        clones[i].setAttribute('src', originals[i].src);
+      }
+    }
+
+    await this.inlineSvgRefs(clone);
+    this.cleanup(clone);
+
+    return {
+      html: clone.outerHTML,
+      css: '',
+      tagName: element.tagName.toLowerCase(),
+      framework: 'tailwind',
+      skippedSheets: 0
+    };
+  }
+
+  rgbToHex(value) {
+    const m = value.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (!m) return value;
+    const h = (n) => (+n).toString(16).padStart(2, '0');
+    return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
+  }
+
+  isTransparent(value) {
+    if (!value || value === 'transparent') return true;
+    // Only a 4-component rgba() with alpha 0 is transparent (rgb() never is).
+    const m = value.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/);
+    return m ? parseFloat(m[1]) === 0 : false;
+  }
+
+  mapComputedToTailwind(cs) {
+    const v = (p) => cs.getPropertyValue(p).trim();
+    const out = [];
+    const px = (val, prefix) => { if (val && val !== '0px') out.push(`${prefix}-[${val}]`); };
+
+    // Display + fl<ex/grid alignment
+    const display = v('display');
+    const displayMap = {
+      flex: 'flex', 'inline-flex': 'inline-flex', grid: 'grid',
+      'inline-grid': 'inline-grid', block: 'block', 'inline-block': 'inline-block',
+      none: 'hidden'
+    };
+    if (displayMap[display]) out.push(displayMap[display]);
+
+    if (display === 'flex' || display === 'inline-flex') {
+      if (v('flex-direction') === 'column') out.push('flex-col');
+      if (v('flex-wrap') === 'wrap') out.push('flex-wrap');
+    }
+    if (display.includes('flex') || display.includes('grid')) {
+      const ai = { center: 'items-center', 'flex-start': 'items-start', 'flex-end': 'items-end', baseline: 'items-baseline' }[v('align-items')];
+      if (ai) out.push(ai);
+      const jc = { center: 'justify-center', 'space-between': 'justify-between', 'space-around': 'justify-around', 'flex-end': 'justify-end' }[v('justify-content')];
+      if (jc) out.push(jc);
+      px(v('gap'), 'gap');
+    }
+
+    // Box model
+    const p = ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'].map(v);
+    if (p.every(x => x === p[0])) px(p[0], 'p');
+    else { px(p[0], 'pt'); px(p[1], 'pr'); px(p[2], 'pb'); px(p[3], 'pl'); }
+
+    const m = ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'].map(v);
+    if (m.every(x => x === m[0])) px(m[0], 'm');
+    else { px(m[0], 'mt'); px(m[1], 'mr'); px(m[2], 'mb'); px(m[3], 'ml'); }
+
+    // Sizing
+    const w = v('width'); if (w && w !== 'auto') out.push(`w-[${w}]`);
+    const h = v('height'); if (h && h !== 'auto') out.push(`h-[${h}]`);
+
+    // Typography
+    px(v('font-size'), 'text');
+    const fw = { '700': 'font-bold', '600': 'font-semibold', '500': 'font-medium', '800': 'font-extrabold', '900': 'font-black', '300': 'font-light' }[v('font-weight')];
+    if (fw) out.push(fw);
+    const ta = { center: 'text-center', right: 'text-right', justify: 'text-justify' }[v('text-align')];
+    if (ta) out.push(ta);
+    const color = v('color'); if (color) out.push(`text-[${this.rgbToHex(color)}]`);
+
+    // Background + border
+    const bg = v('background-color'); if (!this.isTransparent(bg)) out.push(`bg-[${this.rgbToHex(bg)}]`);
+    const br = v('border-top-left-radius'); if (br && br !== '0px') out.push(`rounded-[${br}]`);
+    const bw = v('border-top-width');
+    if (bw && bw !== '0px') {
+      out.push('border');
+      out.push(`border-[${this.rgbToHex(v('border-top-color'))}]`);
+    }
+    const op = v('opacity'); if (op && op !== '1') out.push(`opacity-[${op}]`);
+
+    return out;
   }
 
   // ---------------------------------------------------------------------------

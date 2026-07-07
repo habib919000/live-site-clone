@@ -10,28 +10,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   const copyVueBtn = document.getElementById('copy-vue');
   const downloadBtn = document.getElementById('download-btn');
   const copyCodeBtn = document.getElementById('copy-code');
+  const componentBtn = document.getElementById('copy-component');
   const tokensToggle = document.getElementById('opt-tokens');
   const minifyToggle = document.getElementById('opt-minify');
   const inlineToggle = document.getElementById('opt-inline');
+  const tailwindToggle = document.getElementById('opt-tailwind');
+  const multiToggle = document.getElementById('opt-multi');
   const warnBanner = document.getElementById('cross-origin-warn');
+  const collectedInfo = document.getElementById('collected-info');
 
   let lastResult = null;
+  let parts = { html: '', css: '' }; // effective export (single or combined)
 
   // Restore persisted options.
-  const opts = await chrome.storage.local.get(['inlineAssets', 'useTokens', 'minify']);
-  tokensToggle.checked = opts.useTokens !== false; // default on
-  minifyToggle.checked = !!opts.minify;            // default off
-  inlineToggle.checked = !!opts.inlineAssets;      // default off
+  const opts = await chrome.storage.local.get(['inlineAssets', 'useTokens', 'minify', 'exportMode', 'multiSelect']);
+  tokensToggle.checked = opts.useTokens !== false;       // default on
+  minifyToggle.checked = !!opts.minify;                  // default off
+  inlineToggle.checked = !!opts.inlineAssets;            // default off
+  tailwindToggle.checked = opts.exportMode === 'tailwind';
+  multiToggle.checked = !!opts.multiSelect;
 
   tokensToggle.addEventListener('change', () => chrome.storage.local.set({ useTokens: tokensToggle.checked }));
   minifyToggle.addEventListener('change', () => chrome.storage.local.set({ minify: minifyToggle.checked }));
   inlineToggle.addEventListener('change', () => chrome.storage.local.set({ inlineAssets: inlineToggle.checked }));
+  tailwindToggle.addEventListener('change', () => chrome.storage.local.set({ exportMode: tailwindToggle.checked ? 'tailwind' : 'default' }));
+  multiToggle.addEventListener('change', async () => {
+    await chrome.storage.local.set({ multiSelect: multiToggle.checked });
+    if (!multiToggle.checked) await chrome.storage.local.remove('lastClones');
+    refreshParts();
+  });
 
   // Apply the post-processing pipeline (tokens → pretty/minify) to the CSS.
   function processedCss() {
-    let css = lastResult.css || '';
+    let css = parts.css || '';
+    if (!css) return '';
     if (tokensToggle.checked) css = LSC.extractTokens(css);
     return minifyToggle.checked ? LSC.minifyCss(css) : LSC.prettyCss(css);
+  }
+
+  // Recompute the effective export parts (single clone, or combined in multi).
+  async function refreshParts() {
+    const clones = (await chrome.storage.local.get('lastClones')).lastClones || [];
+    if (multiToggle.checked && clones.length > 1) {
+      parts = LSC.combineClones(clones);
+      collectedInfo.textContent = `${clones.length} sections collected — exports combined. Press Esc on the page to finish picking.`;
+      collectedInfo.classList.remove('hidden');
+    } else {
+      if (multiToggle.checked && clones.length === 1) {
+        collectedInfo.textContent = `1 section collected — keep picking, press Esc to finish.`;
+        collectedInfo.classList.remove('hidden');
+      } else {
+        collectedInfo.classList.add('hidden');
+      }
+      parts = lastResult ? { html: lastResult.html, css: lastResult.css } : { html: '', css: '' };
+    }
   }
 
   // Load last result from storage
@@ -53,13 +85,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       initialState.classList.remove('hidden');
       resultContainer.classList.add('hidden');
     }
+    await refreshParts();
   }
 
   await loadResult();
 
   // Listen for storage changes to update UI in real-time if popup is open
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.lastClone) {
+    if (changes.lastClone || changes.lastClones) {
       loadResult();
     }
   });
@@ -82,13 +115,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   startBtn.addEventListener('click', startPicker);
   resetBtn.addEventListener('click', async () => {
-    await chrome.storage.local.remove('lastClone');
+    await chrome.storage.local.remove(['lastClone', 'lastClones']);
     startPicker();
   });
 
   copyHtmlBtn.addEventListener('click', () => {
     if (lastResult) {
-      copyToClipboard(lastResult.html);
+      copyToClipboard(parts.html);
       showFeedback(copyHtmlBtn, 'HTML');
     }
   });
@@ -102,16 +135,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   copyJsxBtn.addEventListener('click', () => {
     if (!lastResult) return;
-    const jsx = `export default function ClonedComponent() {\n  return (\n${LSC.toJsx(lastResult.html)}\n  );\n}`;
+    const jsx = `export default function ClonedComponent() {\n  return (\n${LSC.toJsx(parts.html)}\n  );\n}`;
     copyToClipboard(jsx);
     showFeedback(copyJsxBtn, 'JSX');
   });
 
   copyVueBtn.addEventListener('click', () => {
     if (!lastResult) return;
-    const css = tokensToggle.checked ? LSC.extractTokens(lastResult.css) : lastResult.css;
-    copyToClipboard(LSC.toVue(lastResult.html, css));
+    const css = tokensToggle.checked ? LSC.extractTokens(parts.css) : parts.css;
+    copyToClipboard(LSC.toVue(parts.html, css));
     showFeedback(copyVueBtn, 'Vue');
+  });
+
+  componentBtn.addEventListener('click', () => {
+    if (!lastResult) return;
+    const c = LSC.componentize(parts.html);
+    if (!c || c.count < 2) {
+      showFeedback(componentBtn, 'None');
+      return;
+    }
+    copyToClipboard(LSC.toReactList(c));
+    showFeedback(componentBtn, `${c.count}×`);
   });
 
   // Assemble the standalone HTML document from the last clone result.
@@ -141,7 +185,7 @@ ${processedCss()}
   </style>
 </head>
 <body>
-${lastResult.html}
+${parts.html}
 </body>
 </html>`;
   }

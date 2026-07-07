@@ -11,7 +11,12 @@ Clone any section from a website into clean HTML/CSS. This Chrome extension allo
   Falls back to a computed-style snapshot for cross-origin sheets.
 - **Design tokens**: Repeated colors and font stacks are hoisted into `:root`
   custom properties.
-- **Framework export**: Copy as standalone HTML, JSX, or Vue SFC.
+- **Framework export**: Copy as standalone HTML, JSX, Vue SFC, or **Tailwind**
+  utility classes (computed styles mapped to `flex`, `p-[16px]`, `bg-[#…]`, …).
+- **Componentize**: Detect repeated sibling structures (cards, list items) and
+  emit a React `.map()` list with a template + extracted data array.
+- **Multi-select**: Collect several sections in one pass (Esc to finish); exports
+  are combined with de-duplicated CSS.
 - **Formatting**: Pretty-print or minify the CSS output.
 - **Asset handling**: Link assets by absolute URL (default) or inline them as
   Base64 for full portability. Inline `<use>`/external SVG icons are resolved.
@@ -23,8 +28,17 @@ Clone any section from a website into clean HTML/CSS. This Chrome extension allo
 npm test
 ```
 
-Runs pure-function unit tests plus a headless-Chrome regression test against a
-fixture page. Override the browser binary with `CHROME_BIN=/path/to/chrome`.
+Runs pure-function unit tests plus headless-Chrome regression tests (extractor,
+Tailwind, componentize) against fixture pages. Override the browser binary with
+`CHROME_BIN=/path/to/chrome`.
+
+### Responsive note
+
+The primary (source-rule) path captures `@media` blocks for **all** breakpoints,
+not just the active viewport, so responsive behaviour is preserved. The
+computed-style fallback (used only for cross-origin stylesheets) is a
+single-viewport snapshot — a content script cannot resize the top window to
+re-measure other breakpoints.
 
 ## Installation
 

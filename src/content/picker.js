@@ -4,14 +4,16 @@ export class ElementPicker {
     this.overlay = null;
     this.selectedElement = null;
     this.isActive = false;
+    this.multi = false;
 
     this.handleMouseMove = this.handleMouseMove.bind(this);
     this.handleClick = this.handleClick.bind(this);
     this.handleKeyDown = this.handleKeyDown.bind(this);
   }
 
-  start() {
+  start(multi = false) {
     if (this.isActive) return;
+    this.multi = multi;
     this.isActive = true;
     this.createOverlay();
     document.addEventListener('mousemove', this.handleMouseMove, true);
@@ -101,7 +103,8 @@ export class ElementPicker {
     if (this.selectedElement) {
       this.onSelect(this.selectedElement);
     }
-    this.stop();
+    // In multi mode keep picking until the user presses Escape.
+    if (!this.multi) this.stop();
   }
 
   handleKeyDown(e) {

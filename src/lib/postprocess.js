@@ -154,7 +154,115 @@
     return `<template>\n${html}\n</template>\n\n<style scoped>\n${prettyCss(css)}</style>\n`;
   }
 
-  const LSC = { prettyCss, minifyCss, extractTokens, toJsx, toVue, VOID_TAGS };
+  // ---- Componentize (repeat detection) --------------------------------------
+
+  // Detect the largest group of sibling elements sharing a tag+class signature,
+  // and turn them into a template + data array. Requires DOMParser (browser).
+  function componentize(html) {
+    if (typeof DOMParser === 'undefined') return null;
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+    const root = doc.body.firstElementChild;
+    if (!root) return null;
+
+    const sigOf = (el) => el.tagName + '.' + Array.from(el.classList).sort().join('.');
+
+    let best = null;
+    const candidates = [root, ...root.querySelectorAll('*')];
+    for (const parent of candidates) {
+      if (parent.children.length < 2) continue;
+      const groups = new Map();
+      for (const c of parent.children) {
+        const sig = sigOf(c);
+        if (!groups.has(sig)) groups.set(sig, []);
+        groups.get(sig).push(c);
+      }
+      for (const els of groups.values()) {
+        if (els.length >= 2 && (!best || els.length > best.els.length)) best = { els };
+      }
+    }
+    if (!best) return null;
+
+    const collectTexts = (el) => {
+      const list = [];
+      const walk = (n) => n.childNodes.forEach((ch) => {
+        if (ch.nodeType === 3) { const s = ch.textContent.trim(); if (s) list.push(ch); }
+        else if (ch.nodeType === 1) walk(ch);
+      });
+      walk(el);
+      return list;
+    };
+    const collectImgs = (el) => Array.from(el.querySelectorAll('img'));
+
+    const tmplEl = best.els[0].cloneNode(true);
+    const tTexts = collectTexts(tmplEl);
+    const tImgs = collectImgs(tmplEl);
+    const fields = [];
+    tTexts.forEach((n, i) => { n.textContent = `{{text${i}}}`; fields.push(`text${i}`); });
+    tImgs.forEach((im, i) => { im.setAttribute('src', `{{img${i}}}`); fields.push(`img${i}`); });
+
+    const items = [];
+    for (const inst of best.els) {
+      const it = collectTexts(inst);
+      const im = collectImgs(inst);
+      if (it.length !== tTexts.length || im.length !== tImgs.length) continue; // structural mismatch
+      const obj = {};
+      it.forEach((n, i) => { obj[`text${i}`] = n.textContent.trim(); });
+      im.forEach((x, i) => { obj[`img${i}`] = x.getAttribute('src') || ''; });
+      items.push(obj);
+    }
+
+    return { count: items.length, signature: sigOf(best.els[0]), fields, template: tmplEl.outerHTML, items };
+  }
+
+  function toReactList(c) {
+    if (!c || !c.items.length) return '';
+    const data = JSON.stringify(c.items, null, 2);
+    let tmpl = c.template
+      .replace(/\bclass=/g, 'className=')
+      .replace(/\{\{(\w+)\}\}/g, (_, f) => `{item.${f}}`)
+      .replace(/^<([a-zA-Z][\w-]*)/, '<$1 key={i}');
+    return `const items = ${data};\n\nexport default function List() {\n  return (\n    <>\n      {items.map((item, i) => (\n        ${tmpl}\n      ))}\n    </>\n  );\n}\n`;
+  }
+
+  // ---- Multi-select combine --------------------------------------------------
+
+  // Merge several clone results into one document fragment. CSS blocks are
+  // de-duplicated (same site → shared rules) preserving first-seen order.
+  function combineClones(clones) {
+    const seen = new Set();
+    let css = '';
+    let html = '';
+    for (const clone of clones) {
+      for (const block of splitCssBlocks(clone.css || '')) {
+        const key = block.replace(/\s+/g, ' ').trim();
+        if (key && !seen.has(key)) { seen.add(key); css += block + '\n\n'; }
+      }
+      html += `<div class="clone-section">\n${clone.html || ''}\n</div>\n`;
+    }
+    return { css: css.trim() + '\n', html: html.trim() };
+  }
+
+  // Split CSS into top-level blocks (rules and at-rules), brace-depth aware.
+  function splitCssBlocks(css) {
+    const blocks = [];
+    let depth = 0;
+    let buf = '';
+    for (const ch of String(css)) {
+      buf += ch;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) { blocks.push(buf.trim()); buf = ''; }
+      }
+    }
+    if (buf.trim()) blocks.push(buf.trim());
+    return blocks;
+  }
+
+  const LSC = {
+    prettyCss, minifyCss, extractTokens, toJsx, toVue,
+    componentize, toReactList, combineClones, splitCssBlocks, VOID_TAGS
+  };
 
   global.LSC = LSC;
   if (typeof module !== 'undefined' && module.exports) module.exports = LSC;

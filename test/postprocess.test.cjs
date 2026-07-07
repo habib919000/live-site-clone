@@ -64,5 +64,23 @@ check('toVue wraps template + scoped style', () => {
   assert.ok(out.includes('color: red'), out);
 });
 
+check('splitCssBlocks is brace-depth aware', () => {
+  const blocks = LSC.splitCssBlocks('.a{color:red}@media(x){.b{color:blue}}');
+  assert.strictEqual(blocks.length, 2, JSON.stringify(blocks));
+  assert.ok(blocks[1].startsWith('@media'), blocks[1]);
+});
+
+check('combineClones merges html and dedupes css', () => {
+  const out = LSC.combineClones([
+    { html: '<div>a</div>', css: '.x{color:red}' },
+    { html: '<div>b</div>', css: '.x{color:red}\n.y{color:blue}' }
+  ]);
+  assert.ok(out.html.includes('>a<') && out.html.includes('>b<'), out.html);
+  assert.ok(out.html.includes('clone-section'), out.html);
+  // .x appears once despite being in both
+  assert.strictEqual(out.css.split('.x{').length - 1, 1, out.css);
+  assert.ok(out.css.includes('.y{'), out.css);
+});
+
 console.log(`\n${fail === 0 ? 'ALL PASS' : fail + ' FAILED'}`);
 process.exit(fail ? 1 : 0);
