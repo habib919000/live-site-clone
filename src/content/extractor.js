@@ -3,6 +3,17 @@ export class Extractor {
     this.defaultStylesCache = new Map();
   }
 
+  // CSS properties that inherit — the only ones kept from ancestor-only rules.
+  static INHERITED = new Set([
+    'color', 'font', 'font-family', 'font-size', 'font-weight', 'font-style',
+    'font-variant', 'font-stretch', 'font-feature-settings', 'line-height',
+    'letter-spacing', 'word-spacing', 'text-align', 'text-transform',
+    'text-indent', 'text-shadow', 'white-space', 'word-break', 'word-wrap',
+    'overflow-wrap', 'direction', 'visibility', 'cursor', 'list-style',
+    'list-style-type', 'list-style-position', 'tab-size', 'color-scheme',
+    '-webkit-font-smoothing', '-moz-osx-font-smoothing'
+  ]);
+
   async extract(element) {
     // Deep clone the element (preserves original tags, classes, inline styles)
     const clonedElement = element.cloneNode(true);
@@ -14,10 +25,12 @@ export class Extractor {
 
     let css;
     if (source.hasMatches) {
-      const vars = this.collectRootVars();
       const rules = this.rewriteCssUrls(source.css);
-      const atRules = this.collectAtRules(source.animations, source.fonts, rules);
-      css = vars + atRules + rules;
+      // @font-face src / @keyframes urls must be absolutized too.
+      const atRules = this.rewriteCssUrls(this.collectAtRules(source.animations, source.fonts, rules));
+      // :root/html rules (incl. custom-property defs) are captured by
+      // processRules via the '*' match, so var() references resolve.
+      css = atRules + rules;
       this.rewriteAssets(clonedElement);
     } else {
       // Fallback: cross-origin sheets or no matched rules — snapshot computed styles.
@@ -37,16 +50,18 @@ export class Extractor {
   // Source-rule extraction (standard practice)
   // ---------------------------------------------------------------------------
 
-  // Subtree elements plus the ancestor chain, so inherited rules
-  // (body typography, :root/html custom properties) are captured too.
+  // Split match targets into the selected subtree and its ancestor chain.
+  // Subtree rules are copied whole; ancestor rules are reduced to inherited
+  // + custom properties only, so parent layout/decoration doesn't leak in.
   getMatchElements(element) {
-    const els = this.getAllElements(element);
+    const subtree = this.getAllElements(element);
+    const ancestors = [];
     let p = element.parentElement;
     while (p) {
-      els.push(p);
+      ancestors.push(p);
       p = p.parentElement;
     }
-    return els;
+    return { subtree, ancestors };
   }
 
   collectSourceStyles(matchEls) {
@@ -75,12 +90,16 @@ export class Extractor {
 
     for (const rule of Array.from(rules)) {
       if (rule.type === CSSRule.STYLE_RULE) {
-        const kept = this.matchingSelectors(rule.selectorText, matchEls);
-        if (kept.length) {
-          state.hasMatches = true;
-          css += `${kept.join(',\n')} {\n${this.formatBody(rule.style)}}\n\n`;
-          this.recordRefs(rule.style, animations, fonts);
-        }
+        const { kept, subtreeMatched } = this.matchingSelectors(rule.selectorText, matchEls);
+        if (!kept.length) continue;
+        const body = subtreeMatched
+          ? this.formatBody(rule.style)
+          : this.formatInherited(rule.style);
+        if (!body) continue;
+        // Only a genuine subtree match justifies the primary path over fallback.
+        if (subtreeMatched) state.hasMatches = true;
+        css += `${kept.join(',\n')} {\n${body}}\n\n`;
+        this.recordRefs(rule.style, animations, fonts);
       } else if (rule.type === CSSRule.MEDIA_RULE) {
         const inner = this.processRules(rule.cssRules, matchEls, animations, fonts, state);
         if (inner.trim()) {
@@ -103,6 +122,20 @@ export class Extractor {
     let body = '';
     for (let i = 0; i < style.length; i++) {
       const prop = style[i];
+      const value = style.getPropertyValue(prop);
+      const priority = style.getPropertyPriority(prop) ? ' !important' : '';
+      body += `  ${prop}: ${value}${priority};\n`;
+    }
+    return body;
+  }
+
+  // For ancestor-only matches, keep just what actually cascades down
+  // (inherited typography-ish props) plus custom properties (var defs).
+  formatInherited(style) {
+    let body = '';
+    for (let i = 0; i < style.length; i++) {
+      const prop = style[i];
+      if (!prop.startsWith('--') && !Extractor.INHERITED.has(prop)) continue;
       const value = style.getPropertyValue(prop);
       const priority = style.getPropertyPriority(prop) ? ' !important' : '';
       body += `  ${prop}: ${value}${priority};\n`;
@@ -152,47 +185,36 @@ export class Extractor {
     return selector.replace(/::?[a-zA-Z-]+(\([^)]*\))?/g, '').trim();
   }
 
-  matchingSelectors(selectorText, els) {
+  // Returns the kept selector fragments and whether any matched the
+  // selected subtree (vs. an ancestor only).
+  matchingSelectors(selectorText, matchEls) {
+    const { subtree, ancestors } = matchEls;
     const kept = [];
+    let subtreeMatched = false;
+
     for (const sel of this.splitSelectors(selectorText)) {
       const test = this.stripPseudo(sel) || '*';
-      let ok = false;
+      let inSubtree = false;
+      let inAncestor = false;
       try {
-        ok = els.some(el => el.matches(test));
+        inSubtree = subtree.some(el => el.matches(test));
       } catch (e) {
-        // Unknown/unsupported selector — keep it rather than lose styling.
-        ok = true;
+        inSubtree = false; // malformed test selector — treat as inherited-only
       }
-      if (ok) kept.push(sel);
-    }
-    return kept;
-  }
-
-  // Emit :root custom-property definitions so var() references resolve.
-  collectRootVars() {
-    let vars = '';
-    for (const sheet of Array.from(document.styleSheets)) {
-      let rules;
-      try {
-        rules = sheet.cssRules;
-      } catch (e) {
-        continue;
-      }
-      if (!rules) continue;
-      for (const rule of Array.from(rules)) {
-        if (rule.type !== CSSRule.STYLE_RULE) continue;
-        if (!/(^|,)\s*(:root|html)\b/.test(rule.selectorText)) continue;
-        let body = '';
-        for (let i = 0; i < rule.style.length; i++) {
-          const prop = rule.style[i];
-          if (prop.startsWith('--')) {
-            body += `  ${prop}: ${rule.style.getPropertyValue(prop)};\n`;
-          }
+      if (!inSubtree) {
+        try {
+          inAncestor = ancestors.some(el => el.matches(test));
+        } catch (e) {
+          inAncestor = false;
         }
-        if (body) vars += `:root {\n${body}}\n\n`;
+      }
+      if (inSubtree || inAncestor) {
+        kept.push(sel);
+        if (inSubtree) subtreeMatched = true;
       }
     }
-    return vars;
+
+    return { kept, subtreeMatched };
   }
 
   // Pull @keyframes / @font-face that the kept rules actually reference.
