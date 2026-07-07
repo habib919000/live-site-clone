@@ -116,29 +116,36 @@ export class Extractor {
     return css;
   }
 
-  // Keep the authored declaration block: shorthand, custom props, !important
-  // are preserved exactly as written (unlike getComputedStyle).
+  // Split a declaration block (cssText) into individual "prop: value" decls.
+  // Iterating style[i] can't be used: shorthands whose value contains var()
+  // (e.g. `background: var(--x)`) enumerate as empty longhands and lose the
+  // value. cssText preserves the authored shorthand + var() + !important.
+  splitDeclarations(cssText) {
+    return (cssText || '')
+      .split(';')
+      .map(d => d.trim())
+      .filter(Boolean);
+  }
+
+  declProp(decl) {
+    const i = decl.indexOf(':');
+    return i === -1 ? '' : decl.slice(0, i).trim().toLowerCase();
+  }
+
+  // Keep the authored declaration block exactly as written.
   formatBody(style) {
-    let body = '';
-    for (let i = 0; i < style.length; i++) {
-      const prop = style[i];
-      const value = style.getPropertyValue(prop);
-      const priority = style.getPropertyPriority(prop) ? ' !important' : '';
-      body += `  ${prop}: ${value}${priority};\n`;
-    }
-    return body;
+    return this.splitDeclarations(style.cssText).map(d => `  ${d};\n`).join('');
   }
 
   // For ancestor-only matches, keep just what actually cascades down
   // (inherited typography-ish props) plus custom properties (var defs).
   formatInherited(style) {
     let body = '';
-    for (let i = 0; i < style.length; i++) {
-      const prop = style[i];
-      if (!prop.startsWith('--') && !Extractor.INHERITED.has(prop)) continue;
-      const value = style.getPropertyValue(prop);
-      const priority = style.getPropertyPriority(prop) ? ' !important' : '';
-      body += `  ${prop}: ${value}${priority};\n`;
+    for (const decl of this.splitDeclarations(style.cssText)) {
+      const prop = this.declProp(decl);
+      if (prop.startsWith('--') || Extractor.INHERITED.has(prop)) {
+        body += `  ${decl};\n`;
+      }
     }
     return body;
   }
