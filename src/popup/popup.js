@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const copyHtmlBtn = document.getElementById('copy-html');
   const copyCssBtn = document.getElementById('copy-css');
   const downloadBtn = document.getElementById('download-btn');
+  const copyCodeBtn = document.getElementById('copy-code');
 
   let lastResult = null;
 
@@ -69,49 +70,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  downloadBtn.addEventListener('click', async () => {
-    if (lastResult) {
-      let iconBase64 = '';
-      try {
-        const response = await fetch(chrome.runtime.getURL('assets/icons/icon128.png'));
-        const blob = await response.blob();
-        iconBase64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-      } catch (e) {
-        console.error('Failed to load icon for download:', e);
-      }
+  // Assemble the standalone HTML document from the last clone result.
+  async function buildFullHtml() {
+    let iconBase64 = '';
+    try {
+      const response = await fetch(chrome.runtime.getURL('assets/icons/icon128.png'));
+      const blob = await response.blob();
+      iconBase64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.error('Failed to load icon:', e);
+    }
 
-      const fullHtml = `
-<!DOCTYPE html>
-<html>
+    return `<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cloned ${lastResult.tagName}</title>
   ${iconBase64 ? `<link rel="icon" type="image/png" href="${iconBase64}">` : ''}
   <style>
-    body { margin: 0; padding: 20px; background: #f5f5f5; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; font-family: sans-serif; }
-    .cloned-container { background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
-    ${lastResult.css}
+${lastResult.css}
   </style>
 </head>
 <body>
-  <div class="cloned-container">
-    ${lastResult.html}
-  </div>
+${lastResult.html}
 </body>
 </html>`;
-      const blob = new Blob([fullHtml], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `cloned-${lastResult.tagName.toLowerCase()}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+  }
+
+  downloadBtn.addEventListener('click', async () => {
+    if (!lastResult) return;
+    const fullHtml = await buildFullHtml();
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cloned-${lastResult.tagName.toLowerCase()}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  copyCodeBtn.addEventListener('click', async () => {
+    if (!lastResult) return;
+    const fullHtml = await buildFullHtml();
+    copyToClipboard(fullHtml);
+    showFeedback(copyCodeBtn, 'Code');
   });
 
   function copyToClipboard(text) {
