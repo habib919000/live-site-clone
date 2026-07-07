@@ -25,7 +25,15 @@
         <div class="result-section">
           <div class="status-badge">Ready to Clone</div>
           <h3 class="tag-display">Selected: <span id="tag-name">div</span></h3>
-          
+
+          <div id="cross-origin-warn" class="warn-banner hidden"></div>
+
+          <div class="options">
+            <label><input type="checkbox" id="opt-tokens"> Design tokens</label>
+            <label><input type="checkbox" id="opt-minify"> Minify CSS</label>
+            <label><input type="checkbox" id="opt-inline"> Inline assets (base64)</label>
+          </div>
+
           <div class="actions">
             <button id="copy-html" class="action-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
@@ -34,6 +42,14 @@
             <button id="copy-css" class="action-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
               CSS
+            </button>
+            <button id="copy-jsx" class="action-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+              JSX
+            </button>
+            <button id="copy-vue" class="action-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 19h20L12 2z"></path></svg>
+              Vue
             </button>
             <button id="download-btn" class="primary-btn full-width">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -52,6 +68,7 @@
       </div>
     </div>
   </div>
+  <script src="../lib/postprocess.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

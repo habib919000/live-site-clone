@@ -6,10 +6,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tagNameSpan = document.getElementById('tag-name');
   const copyHtmlBtn = document.getElementById('copy-html');
   const copyCssBtn = document.getElementById('copy-css');
+  const copyJsxBtn = document.getElementById('copy-jsx');
+  const copyVueBtn = document.getElementById('copy-vue');
   const downloadBtn = document.getElementById('download-btn');
   const copyCodeBtn = document.getElementById('copy-code');
+  const tokensToggle = document.getElementById('opt-tokens');
+  const minifyToggle = document.getElementById('opt-minify');
+  const inlineToggle = document.getElementById('opt-inline');
+  const warnBanner = document.getElementById('cross-origin-warn');
 
   let lastResult = null;
+
+  // Restore persisted options.
+  const opts = await chrome.storage.local.get(['inlineAssets', 'useTokens', 'minify']);
+  tokensToggle.checked = opts.useTokens !== false; // default on
+  minifyToggle.checked = !!opts.minify;            // default off
+  inlineToggle.checked = !!opts.inlineAssets;      // default off
+
+  tokensToggle.addEventListener('change', () => chrome.storage.local.set({ useTokens: tokensToggle.checked }));
+  minifyToggle.addEventListener('change', () => chrome.storage.local.set({ minify: minifyToggle.checked }));
+  inlineToggle.addEventListener('change', () => chrome.storage.local.set({ inlineAssets: inlineToggle.checked }));
+
+  // Apply the post-processing pipeline (tokens → pretty/minify) to the CSS.
+  function processedCss() {
+    let css = lastResult.css || '';
+    if (tokensToggle.checked) css = LSC.extractTokens(css);
+    return minifyToggle.checked ? LSC.minifyCss(css) : LSC.prettyCss(css);
+  }
 
   // Load last result from storage
   async function loadResult() {
@@ -17,6 +40,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (storage.lastClone) {
       lastResult = storage.lastClone;
       tagNameSpan.textContent = `<${lastResult.tagName.toLowerCase()}>`;
+      const skipped = lastResult.skippedSheets || 0;
+      if (skipped > 0) {
+        warnBanner.textContent = `⚠ ${skipped} cross-origin stylesheet${skipped > 1 ? 's' : ''} could not be read — some styles may be missing or approximated.`;
+        warnBanner.classList.remove('hidden');
+      } else {
+        warnBanner.classList.add('hidden');
+      }
       initialState.classList.add('hidden');
       resultContainer.classList.remove('hidden');
     } else {
@@ -65,9 +95,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   copyCssBtn.addEventListener('click', () => {
     if (lastResult) {
-      copyToClipboard(lastResult.css);
+      copyToClipboard(processedCss());
       showFeedback(copyCssBtn, 'CSS');
     }
+  });
+
+  copyJsxBtn.addEventListener('click', () => {
+    if (!lastResult) return;
+    const jsx = `export default function ClonedComponent() {\n  return (\n${LSC.toJsx(lastResult.html)}\n  );\n}`;
+    copyToClipboard(jsx);
+    showFeedback(copyJsxBtn, 'JSX');
+  });
+
+  copyVueBtn.addEventListener('click', () => {
+    if (!lastResult) return;
+    const css = tokensToggle.checked ? LSC.extractTokens(lastResult.css) : lastResult.css;
+    copyToClipboard(LSC.toVue(lastResult.html, css));
+    showFeedback(copyVueBtn, 'Vue');
   });
 
   // Assemble the standalone HTML document from the last clone result.
@@ -93,7 +137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   <title>Cloned ${lastResult.tagName}</title>
   ${iconBase64 ? `<link rel="icon" type="image/png" href="${iconBase64}">` : ''}
   <style>
-${lastResult.css}
+${processedCss()}
   </style>
 </head>
 <body>

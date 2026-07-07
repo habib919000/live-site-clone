@@ -20,7 +20,10 @@
     if (!picker && ElementPicker) {
       picker = new ElementPicker(async (element) => {
         const extractor = new Extractor();
-        const result = await extractor.extract(element);
+        const settings = await chrome.storage.local.get('inlineAssets');
+        const result = await extractor.extract(element, {
+          inlineAssets: !!settings.inlineAssets
+        });
         
         // Save to storage so popup can read it
         await chrome.storage.local.set({ lastClone: result });

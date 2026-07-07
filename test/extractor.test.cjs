@@ -37,10 +37,12 @@ const fixture = `<!doctype html>
 </style>
 </head>
 <body>
+  <svg style="display:none"><symbol id="ico" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></symbol></svg>
   <div class="wrap">
     <div class="card" id="target">
       <h2 class="title">Hello</h2>
       <span class="badge">b</span>
+      <svg class="icon" width="10" height="10"><use href="#ico"></use></svg>
     </div>
   </div>
 <script>
@@ -104,6 +106,9 @@ const checks = [
   ['no data-dc-id (primary path used)', !html.includes('data-dc-id')],
   ['html keeps class="card"', html.includes('class="card"')],
   ['html keeps class="title"', html.includes('class="title"')],
+  ['SVG <use> inlined (no <use> left)', !/<use\b/.test(html)],
+  ['SVG symbol path inlined', html.includes('M0 0h10v10H0z')],
+  ['skippedSheets is a number', typeof result.skippedSheets === 'number'],
 ];
 
 let fail = 0;

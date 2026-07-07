@@ -5,9 +5,26 @@ Clone any section from a website into clean HTML/CSS. This Chrome extension allo
 ## Features
 
 - **Element Picker**: Interactive selection of any DOM element.
-- **Style Extraction**: Captures computed styles, including pseudo-elements.
-- **Image Handling**: Automatically converts images to Base64 for portability.
-- **Standalone Export**: Download the selected section as a ready-to-use HTML file.
+- **Authored CSS extraction**: Pulls the real stylesheet rules that apply to the
+  selection — preserving class selectors, shorthand, `var()`, `@media`,
+  `@keyframes`, and `@font-face` — instead of a flat computed-style dump.
+  Falls back to a computed-style snapshot for cross-origin sheets.
+- **Design tokens**: Repeated colors and font stacks are hoisted into `:root`
+  custom properties.
+- **Framework export**: Copy as standalone HTML, JSX, or Vue SFC.
+- **Formatting**: Pretty-print or minify the CSS output.
+- **Asset handling**: Link assets by absolute URL (default) or inline them as
+  Base64 for full portability. Inline `<use>`/external SVG icons are resolved.
+- **Cross-origin awareness**: Warns when stylesheets couldn't be read.
+
+## Testing
+
+```
+npm test
+```
+
+Runs pure-function unit tests plus a headless-Chrome regression test against a
+fixture page. Override the browser binary with `CHROME_BIN=/path/to/chrome`.
 
 ## Installation
 

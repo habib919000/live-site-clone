@@ -14,9 +14,11 @@ export class Extractor {
     '-webkit-font-smoothing', '-moz-osx-font-smoothing'
   ]);
 
-  async extract(element) {
+  async extract(element, options = {}) {
     // Deep clone the element (preserves original tags, classes, inline styles)
     const clonedElement = element.cloneNode(true);
+
+    const inlineAssets = !!(options && options.inlineAssets);
 
     // Primary path: pull authored CSS rules that apply to this subtree.
     // Preserves class selectors, shorthand, custom properties, media queries.
@@ -31,18 +33,23 @@ export class Extractor {
       // :root/html rules (incl. custom-property defs) are captured by
       // processRules via the '*' match, so var() references resolve.
       css = atRules + rules;
-      this.rewriteAssets(clonedElement);
+      await this.rewriteAssets(clonedElement, inlineAssets);
     } else {
       // Fallback: cross-origin sheets or no matched rules — snapshot computed styles.
-      css = await this.collectComputedStyles(element, clonedElement);
+      css = await this.collectComputedStyles(element, clonedElement, inlineAssets);
     }
 
+    if (inlineAssets) css = await this.inlineCssUrls(css);
+
+    // Inline <use>/external SVG references so icons survive standalone.
+    await this.inlineSvgRefs(clonedElement);
     this.cleanup(clonedElement);
 
     return {
       html: clonedElement.outerHTML,
       css,
-      tagName: element.tagName.toLowerCase()
+      tagName: element.tagName.toLowerCase(),
+      skippedSheets: source.skippedSheets
     };
   }
 
@@ -69,20 +76,22 @@ export class Extractor {
     const fonts = new Set();
     const state = { hasMatches: false };
     let css = '';
+    let skippedSheets = 0;
 
     for (const sheet of Array.from(document.styleSheets)) {
       let rules;
       try {
         rules = sheet.cssRules;
       } catch (e) {
-        // Cross-origin stylesheet — not readable. Skip (best effort).
+        // Cross-origin stylesheet — not readable. Count it so the UI can warn.
+        skippedSheets++;
         continue;
       }
       if (!rules) continue;
       css += this.processRules(rules, matchEls, animations, fonts, state);
     }
 
-    return { css, animations, fonts, hasMatches: state.hasMatches };
+    return { css, animations, fonts, hasMatches: state.hasMatches, skippedSheets };
   }
 
   processRules(rules, matchEls, animations, fonts, state) {
@@ -261,33 +270,128 @@ export class Extractor {
     });
   }
 
-  // Resolve img/source and inline-style asset URLs to absolute.
-  rewriteAssets(root) {
-    this.getAllElements(root).forEach(el => {
+  // Resolve img/source and inline-style asset URLs. When inlineAssets is set,
+  // convert images to base64 (portable/offline); otherwise link absolute URLs.
+  async rewriteAssets(root, inlineAssets) {
+    for (const el of this.getAllElements(root)) {
       if (el.tagName === 'IMG' || el.tagName === 'SOURCE') {
-        if (el.getAttribute('src')) el.setAttribute('src', el.src);
+        if (el.getAttribute('src')) {
+          const abs = el.src;
+          el.setAttribute('src', inlineAssets ? await this.imageToBase64(abs) : abs);
+        }
         const srcset = el.getAttribute('srcset');
         if (srcset) {
-          const resolved = srcset.split(',').map(part => {
+          const parts = await Promise.all(srcset.split(',').map(async part => {
             const [url, size] = part.trim().split(/\s+/);
             try {
               const abs = new URL(url, window.location.href).href;
-              return size ? `${abs} ${size}` : abs;
+              const resolved = inlineAssets ? await this.imageToBase64(abs) : abs;
+              return size ? `${resolved} ${size}` : resolved;
             } catch (e) {
               return part.trim();
             }
-          });
-          el.setAttribute('srcset', resolved.join(', '));
+          }));
+          el.setAttribute('srcset', parts.join(', '));
         }
       }
       const inline = el.getAttribute('style');
       if (inline && inline.includes('url(')) {
-        el.setAttribute('style', this.rewriteCssUrls(inline));
+        let rewritten = this.rewriteCssUrls(inline);
+        if (inlineAssets) rewritten = await this.inlineCssUrls(rewritten);
+        el.setAttribute('style', rewritten);
       }
       if (el.tagName === 'svg') {
         el.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       }
-    });
+    }
+  }
+
+  // Replace absolute url(...) references in CSS with base64 data URIs.
+  async inlineCssUrls(css) {
+    const urls = new Set();
+    const re = /url\(\s*"?(https?:\/\/[^"')]+)"?\s*\)/g;
+    let m;
+    while ((m = re.exec(css)) !== null) urls.add(m[1]);
+    for (const url of urls) {
+      try {
+        const b64 = await this.imageToBase64(url);
+        if (b64.startsWith('data:')) css = css.split(url).join(b64);
+      } catch (e) { /* leave the absolute URL as a fallback */ }
+    }
+    return css;
+  }
+
+  // Inline SVG <use href>/<image href> that point at external or same-doc
+  // symbols, so icons render in the standalone file.
+  async inlineSvgRefs(root) {
+    for (const el of this.getAllElements(root)) {
+      const tag = el.tagName.toLowerCase();
+      if (tag !== 'use' && tag !== 'image') continue;
+      const ref = el.getAttribute('href') || el.getAttribute('xlink:href');
+      if (!ref) continue;
+
+      // Same-document fragment (#icon) — copy the referenced node's guts in.
+      if (ref.startsWith('#')) {
+        const target = document.querySelector(ref);
+        if (target && tag === 'use' && el.parentNode) {
+          const frag = target.cloneNode(true);
+          frag.removeAttribute('id');
+          while (frag.firstChild) el.parentNode.insertBefore(frag.firstChild, el);
+          el.remove();
+        }
+        continue;
+      }
+
+      // External file (icons.svg#icon or image.png) — resolve to absolute,
+      // and for <image> optionally base64 (handled by inlineAssets elsewhere).
+      try {
+        const abs = new URL(ref, window.location.href).href;
+        if (tag === 'image') {
+          el.setAttribute('href', abs);
+        } else {
+          const [file, frag] = abs.split('#');
+          const res = await fetch(file);
+          const text = await res.text();
+          const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+          const symbol = frag ? doc.getElementById(frag) : doc.querySelector('symbol, svg');
+          if (symbol && el.parentNode) {
+            const clone = symbol.cloneNode(true);
+            clone.removeAttribute('id');
+            while (clone.firstChild) el.parentNode.insertBefore(clone.firstChild, el);
+            el.remove();
+          }
+        }
+      } catch (e) { /* leave the reference untouched */ }
+    }
+  }
+
+  async imageToBase64(url) {
+    if (!url) return '';
+    if (url.startsWith('data:')) return url;
+    const absoluteUrl = new URL(url, window.location.href).href;
+    try {
+      if (absoluteUrl.toLowerCase().split('?')[0].endsWith('.svg')) {
+        const res = await fetch(absoluteUrl);
+        const text = await res.text();
+        return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+      }
+      return await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          try { resolve(canvas.toDataURL('image/png')); }
+          catch (e) { resolve(absoluteUrl); } // tainted canvas (CORS) — fall back
+        };
+        img.onerror = () => resolve(absoluteUrl);
+        img.src = absoluteUrl;
+      });
+    } catch (e) {
+      return absoluteUrl;
+    }
   }
 
   indent(css) {
@@ -332,7 +436,7 @@ export class Extractor {
   // Computed-style fallback (cross-origin sheets / no matched rules)
   // ---------------------------------------------------------------------------
 
-  async collectComputedStyles(originalElement, clonedRoot) {
+  async collectComputedStyles(originalElement, clonedRoot, inlineAssets) {
     const originalElements = this.getAllElements(originalElement);
     const clonedElements = this.getAllElements(clonedRoot);
 
@@ -357,9 +461,9 @@ export class Extractor {
         }
       }
 
-      // Resolve asset URLs to absolute (link, not base64).
+      // Resolve asset URLs (absolute link, or base64 when inlineAssets set).
       if ((el.tagName === 'IMG' || el.tagName === 'SOURCE') && el.getAttribute('src')) {
-        clonedEl.setAttribute('src', el.src);
+        clonedEl.setAttribute('src', inlineAssets ? await this.imageToBase64(el.src) : el.src);
       }
       if (el.tagName === 'svg') {
         clonedEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
