@@ -69,9 +69,13 @@ export class Extractor {
 
     for (let i = 0; i < originals.length; i++) {
       if (!clones[i]) continue;
-      const classes = this.mapComputedToTailwind(window.getComputedStyle(originals[i]));
+      const classes = this.mapComputedToTailwind(originals[i]);
       if (classes.length) clones[i].setAttribute('class', classes.join(' '));
       else clones[i].removeAttribute('class');
+      // Drop the original inline styles: utilities are authoritative here, and
+      // leftover site styles (e.g. var(--wp--…)) reference undefined variables.
+      clones[i].removeAttribute('style');
+      clones[i].removeAttribute('data-selector');
       if ((originals[i].tagName === 'IMG' || originals[i].tagName === 'SOURCE') && originals[i].getAttribute('src')) {
         clones[i].setAttribute('src', originals[i].src);
       }
@@ -103,17 +107,23 @@ export class Extractor {
     return m ? parseFloat(m[1]) === 0 : false;
   }
 
-  mapComputedToTailwind(cs) {
+  mapComputedToTailwind(el) {
+    const cs = window.getComputedStyle(el);
+    const parent = el.parentElement;
+    const pcs = parent ? window.getComputedStyle(parent) : null;
     const v = (p) => cs.getPropertyValue(p).trim();
+    // Inherited props (color/font/…) only matter when they differ from the
+    // parent — otherwise every node repeats the same text-[…] utilities.
+    const inheritedDiffers = (p) => !pcs || pcs.getPropertyValue(p).trim() !== v(p);
     const out = [];
     const px = (val, prefix) => { if (val && val !== '0px') out.push(`${prefix}-[${val}]`); };
 
-    // Display + fl<ex/grid alignment
+    // Display (skip `block` — it's the default for the common block elements
+    // and only adds noise; explicit layout modes are what matter).
     const display = v('display');
     const displayMap = {
       flex: 'flex', 'inline-flex': 'inline-flex', grid: 'grid',
-      'inline-grid': 'inline-grid', block: 'block', 'inline-block': 'inline-block',
-      none: 'hidden'
+      'inline-grid': 'inline-grid', 'inline-block': 'inline-block', none: 'hidden'
     };
     if (displayMap[display]) out.push(displayMap[display]);
 
@@ -126,10 +136,17 @@ export class Extractor {
       if (ai) out.push(ai);
       const jc = { center: 'justify-center', 'space-between': 'justify-between', 'space-around': 'justify-around', 'flex-end': 'justify-end' }[v('justify-content')];
       if (jc) out.push(jc);
-      px(v('gap'), 'gap');
+      // gap may be "normal", one length, or "row col"
+      const gap = v('gap');
+      if (gap && gap !== 'normal') {
+        const parts = gap.split(/\s+/);
+        if (parts.length === 1) { if (parts[0] !== '0px') out.push(`gap-[${parts[0]}]`); }
+        else { if (parts[0] !== '0px') out.push(`gap-y-[${parts[0]}]`); if (parts[1] !== '0px') out.push(`gap-x-[${parts[1]}]`); }
+      }
     }
 
-    // Box model
+    // Box model. NB: width/height are intentionally NOT emitted — freezing
+    // every element to its computed px size collapses the layout.
     const p = ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'].map(v);
     if (p.every(x => x === p[0])) px(p[0], 'p');
     else { px(p[0], 'pt'); px(p[1], 'pr'); px(p[2], 'pb'); px(p[3], 'pl'); }
@@ -138,17 +155,20 @@ export class Extractor {
     if (m.every(x => x === m[0])) px(m[0], 'm');
     else { px(m[0], 'mt'); px(m[1], 'mr'); px(m[2], 'mb'); px(m[3], 'ml'); }
 
-    // Sizing
-    const w = v('width'); if (w && w !== 'auto') out.push(`w-[${w}]`);
-    const h = v('height'); if (h && h !== 'auto') out.push(`h-[${h}]`);
-
-    // Typography
-    px(v('font-size'), 'text');
-    const fw = { '700': 'font-bold', '600': 'font-semibold', '500': 'font-medium', '800': 'font-extrabold', '900': 'font-black', '300': 'font-light' }[v('font-weight')];
-    if (fw) out.push(fw);
-    const ta = { center: 'text-center', right: 'text-right', justify: 'text-justify' }[v('text-align')];
-    if (ta) out.push(ta);
-    const color = v('color'); if (color) out.push(`text-[${this.rgbToHex(color)}]`);
+    // Typography — only when it actually changes from the inherited value.
+    if (inheritedDiffers('font-size')) px(v('font-size'), 'text');
+    if (inheritedDiffers('font-weight')) {
+      const fw = { '700': 'font-bold', '600': 'font-semibold', '500': 'font-medium', '800': 'font-extrabold', '900': 'font-black', '300': 'font-light' }[v('font-weight')];
+      if (fw) out.push(fw);
+    }
+    if (inheritedDiffers('text-align')) {
+      const ta = { center: 'text-center', right: 'text-right', justify: 'text-justify' }[v('text-align')];
+      if (ta) out.push(ta);
+    }
+    if (inheritedDiffers('color')) {
+      const color = v('color');
+      if (color) out.push(`text-[${this.rgbToHex(color)}]`);
+    }
 
     // Background + border
     const bg = v('background-color'); if (!this.isTransparent(bg)) out.push(`bg-[${this.rgbToHex(bg)}]`);

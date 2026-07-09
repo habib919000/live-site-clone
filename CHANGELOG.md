@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed
+- **Tailwind export was unusable in the standalone download.** Three fixes:
+  - The downloaded file now includes the Tailwind runtime (`cdn.tailwindcss.com`)
+    so the utility classes actually render (previously an empty `<style>` → the
+    page looked unstyled/broken).
+  - Stop emitting fixed `w-[…]`/`h-[…]` on every element — freezing computed
+    pixel sizes collapsed the layout. Width/height are no longer forced.
+  - Strip the original inline `style`/`data-selector` attributes in Tailwind
+    mode; they referenced site-specific `var(--…)` values that don't exist in
+    the exported file.
+- Deduplicate inherited typography: `text-[…]`/`font-*` are emitted only when
+  they differ from the parent, so class lists are far shorter.
+- Fix `gap` mapping for two-value and `normal` gaps.
+
+Note: for a faithful pixel copy, the default (authored-CSS) mode is recommended;
+Tailwind mode is an approximate, utility-first conversion.
+
 ## 2.0.0
 
 Major release. The extractor was rewritten to produce authored, maintainable

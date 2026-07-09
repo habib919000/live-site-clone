@@ -173,6 +173,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.error('Failed to load icon:', e);
     }
 
+    // Tailwind output carries no <style>; it needs the Tailwind runtime to
+    // turn the utility classes into actual CSS.
+    const isTailwind = lastResult.framework === 'tailwind' && !multiToggle.checked;
+    const head = isTailwind
+      ? '  <script src="https://cdn.tailwindcss.com"></script>'
+      : `  <style>\n${processedCss()}\n  </style>`;
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -180,9 +187,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cloned ${lastResult.tagName}</title>
   ${iconBase64 ? `<link rel="icon" type="image/png" href="${iconBase64}">` : ''}
-  <style>
-${processedCss()}
-  </style>
+${head}
 </head>
 <body>
 ${parts.html}
