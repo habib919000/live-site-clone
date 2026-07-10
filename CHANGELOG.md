@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0
+
+### Removed
+- **Tailwind class export.** The computed-style → utility-class conversion was
+  lossy (approximate values, needed the Tailwind runtime to render, froze
+  layout with fixed sizes). Removed the `opt-tailwind` option, the `tailwind`
+  extract mode, and related mapping code. Use the default authored-CSS export
+  (optionally JSX/Vue) instead.
+
 ## 2.0.0
 
 Major release. The extractor was rewritten to produce authored, maintainable

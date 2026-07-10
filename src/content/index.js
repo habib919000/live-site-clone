@@ -20,10 +20,9 @@
     if (!picker && ElementPicker) {
       picker = new ElementPicker(async (element) => {
         const extractor = new Extractor();
-        const settings = await chrome.storage.local.get(['inlineAssets', 'exportMode', 'multiSelect']);
+        const settings = await chrome.storage.local.get(['inlineAssets', 'multiSelect']);
         const result = await extractor.extract(element, {
-          inlineAssets: !!settings.inlineAssets,
-          mode: settings.exportMode === 'tailwind' ? 'tailwind' : 'default'
+          inlineAssets: !!settings.inlineAssets
         });
 
         // Latest clone drives the single-clone UI.

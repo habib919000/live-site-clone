@@ -1,10 +1,10 @@
 {
   "name": "live-site-clone",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Chrome extension: clone any section of a live site into standalone HTML/CSS.",
   "private": true,
   "scripts": {
-    "test": "node test/postprocess.test.cjs && node test/extractor.test.cjs && node test/tailwind.test.cjs && node test/componentize.test.cjs"
+    "test": "node test/postprocess.test.cjs && node test/extractor.test.cjs && node test/componentize.test.cjs"
   },
   "license": "MIT"
 }
