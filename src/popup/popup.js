@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tokensToggle = document.getElementById('opt-tokens');
   const minifyToggle = document.getElementById('opt-minify');
   const inlineToggle = document.getElementById('opt-inline');
-  const tailwindToggle = document.getElementById('opt-tailwind');
   const multiToggle = document.getElementById('opt-multi');
   const warnBanner = document.getElementById('cross-origin-warn');
   const collectedInfo = document.getElementById('collected-info');
@@ -23,17 +22,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   let parts = { html: '', css: '' }; // effective export (single or combined)
 
   // Restore persisted options.
-  const opts = await chrome.storage.local.get(['inlineAssets', 'useTokens', 'minify', 'exportMode', 'multiSelect']);
+  const opts = await chrome.storage.local.get(['inlineAssets', 'useTokens', 'minify', 'multiSelect']);
   tokensToggle.checked = opts.useTokens !== false;       // default on
   minifyToggle.checked = !!opts.minify;                  // default off
   inlineToggle.checked = !!opts.inlineAssets;            // default off
-  tailwindToggle.checked = opts.exportMode === 'tailwind';
   multiToggle.checked = !!opts.multiSelect;
 
   tokensToggle.addEventListener('change', () => chrome.storage.local.set({ useTokens: tokensToggle.checked }));
   minifyToggle.addEventListener('change', () => chrome.storage.local.set({ minify: minifyToggle.checked }));
   inlineToggle.addEventListener('change', () => chrome.storage.local.set({ inlineAssets: inlineToggle.checked }));
-  tailwindToggle.addEventListener('change', () => chrome.storage.local.set({ exportMode: tailwindToggle.checked ? 'tailwind' : 'default' }));
   multiToggle.addEventListener('change', async () => {
     await chrome.storage.local.set({ multiSelect: multiToggle.checked });
     if (!multiToggle.checked) await chrome.storage.local.remove('lastClones');

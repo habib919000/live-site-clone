@@ -11,8 +11,7 @@ Clone any section from a website into clean HTML/CSS. This Chrome extension allo
   Falls back to a computed-style snapshot for cross-origin sheets.
 - **Design tokens**: Repeated colors and font stacks are hoisted into `:root`
   custom properties.
-- **Framework export**: Copy as standalone HTML, JSX, Vue SFC, or **Tailwind**
-  utility classes (computed styles mapped to `flex`, `p-[16px]`, `bg-[#…]`, …).
+- **Framework export**: Copy as standalone HTML, JSX, or Vue SFC.
 - **Componentize**: Detect repeated sibling structures (cards, list items) and
   emit a React `.map()` list with a template + extracted data array.
 - **Multi-select**: Collect several sections in one pass (Esc to finish); exports
